@@ -38,7 +38,7 @@ trait CompilesExpressions
 
 			$materialized_expression = is_null($expression['materialized'])
 				? ''
-				: $expression['materialized'] === false ? "not materialized" : "materialized";
+				: ($expression['materialized'] === false ? "not materialized" : "materialized");
 
 
 			$statements[] = $this->wrapTable($expression['name']) . ' ' . $columns . 'as ' . $materialized_expression . ' (' . $expression['query'] . ')';
