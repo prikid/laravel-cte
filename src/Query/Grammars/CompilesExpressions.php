@@ -7,133 +7,138 @@ use Illuminate\Support\Str;
 
 trait CompilesExpressions
 {
-    /**
-     * Create a new grammar instance.
-     */
-    public function __construct()
-    {
-        array_unshift($this->selectComponents, 'expressions');
+	/**
+	 * Create a new grammar instance.
+	 */
+	public function __construct()
+	{
+		array_unshift($this->selectComponents, 'expressions');
 
-        $this->selectComponents[] = 'recursionLimit';
-    }
+		$this->selectComponents[] = 'recursionLimit';
+	}
 
-    /**
-     * Compile the common table expressions.
-     *
-     * @param \Illuminate\Database\Query\Builder $query
-     * @return string
-     */
-    public function compileExpressions(Builder $query)
-    {
-        if (!$query->expressions) {
-            return '';
-        }
+	/**
+	 * Compile the common table expressions.
+	 *
+	 * @param \Illuminate\Database\Query\Builder $query
+	 * @return string
+	 */
+	public function compileExpressions(Builder $query)
+	{
+		if (!$query->expressions) {
+			return '';
+		}
 
-        $recursive = $this->recursiveKeyword($query->expressions);
+		$recursive = $this->recursiveKeyword($query->expressions);
 
-        $statements = [];
+		$statements = [];
 
-        foreach ($query->expressions as $expression) {
-            $columns = $expression['columns'] ? '('.$this->columnize($expression['columns']).') ' : '';
+		foreach ($query->expressions as $expression) {
+			$columns = $expression['columns'] ? '(' . $this->columnize($expression['columns']) . ') ' : '';
 
-            $statements[] = $this->wrapTable($expression['name']).' '.$columns.'as ('.$expression['query'].')';
-        }
+			$materialized_expression = is_null($expression['materialized'])
+				? ''
+				: $expression['materialized'] === false ? "not materialized" : "materialized";
 
-        return 'with '.$recursive.implode(', ', $statements);
-    }
 
-    /**
-     * Get the "recursive" keyword.
-     *
-     * @param array $expressions
-     * @return string
-     */
-    protected function recursiveKeyword(array $expressions)
-    {
-        return collect($expressions)->where('recursive', true)->isNotEmpty() ? 'recursive ' : '';
-    }
+			$statements[] = $this->wrapTable($expression['name']) . ' ' . $columns . 'as ' . $materialized_expression . ' (' . $expression['query'] . ')';
+		}
 
-    /**
-     * Compile the recursion limit.
-     *
-     * @param \Illuminate\Database\Query\Builder $query
-     * @return string
-     */
-    public function compileRecursionLimit(Builder $query)
-    {
-        if (is_null($query->recursionLimit)) {
-            return '';
-        }
+		return 'with ' . $recursive . implode(', ', $statements);
+	}
 
-        return 'option (maxrecursion '.(int) $query->recursionLimit.')';
-    }
+	/**
+	 * Get the "recursive" keyword.
+	 *
+	 * @param array $expressions
+	 * @return string
+	 */
+	protected function recursiveKeyword(array $expressions)
+	{
+		return collect($expressions)->where('recursive', true)->isNotEmpty() ? 'recursive ' : '';
+	}
 
-    /**
-     * Compile an insert statement using a subquery into SQL.
-     *
-     * @param \Illuminate\Database\Query\Builder $query
-     * @param array $columns
-     * @param string $sql
-     * @return string
-     */
-    public function compileInsertUsing(Builder $query, array $columns, string $sql)
-    {
-        $expressions = $this->compileExpressions($query);
+	/**
+	 * Compile the recursion limit.
+	 *
+	 * @param \Illuminate\Database\Query\Builder $query
+	 * @return string
+	 */
+	public function compileRecursionLimit(Builder $query)
+	{
+		if (is_null($query->recursionLimit)) {
+			return '';
+		}
 
-        $recursionLimit = $this->compileRecursionLimit($query);
+		return 'option (maxrecursion ' . (int)$query->recursionLimit . ')';
+	}
 
-        $compiled = parent::compileInsertUsing($query, $columns, $sql);
+	/**
+	 * Compile an insert statement using a subquery into SQL.
+	 *
+	 * @param \Illuminate\Database\Query\Builder $query
+	 * @param array                              $columns
+	 * @param string                             $sql
+	 * @return string
+	 */
+	public function compileInsertUsing(Builder $query, array $columns, string $sql)
+	{
+		$expressions = $this->compileExpressions($query);
 
-        return (string) Str::of($compiled)
-            ->prepend($expressions, ' ')
-            ->append(' ', $recursionLimit)
-            ->trim();
-    }
+		$recursionLimit = $this->compileRecursionLimit($query);
 
-    /**
-     * Compile an update statement into SQL.
-     *
-     * @param \Illuminate\Database\Query\Builder $query
-     * @param array $values
-     * @return string
-     */
-    public function compileUpdate(Builder $query, array $values)
-    {
-        $compiled = parent::compileUpdate($query, $values);
+		$compiled = parent::compileInsertUsing($query, $columns, $sql);
 
-        return (string) Str::of($compiled)
-            ->prepend($this->compileExpressions($query), ' ')
-            ->trim();
-    }
+		return (string)Str::of($compiled)
+			->prepend($expressions, ' ')
+			->append(' ', $recursionLimit)
+			->trim();
+	}
 
-    /**
-     * Prepare the bindings for an update statement.
-     *
-     * @param array $bindings
-     * @param array $values
-     * @return array
-     */
-    public function prepareBindingsForUpdate(array $bindings, array $values)
-    {
-        $values = array_merge($bindings['expressions'], $values);
+	/**
+	 * Compile an update statement into SQL.
+	 *
+	 * @param \Illuminate\Database\Query\Builder $query
+	 * @param array                              $values
+	 * @return string
+	 */
+	public function compileUpdate(Builder $query, array $values)
+	{
+		$compiled = parent::compileUpdate($query, $values);
 
-        unset($bindings['expressions']);
+		return (string)Str::of($compiled)
+			->prepend($this->compileExpressions($query), ' ')
+			->trim();
+	}
 
-        return parent::prepareBindingsForUpdate($bindings, $values);
-    }
+	/**
+	 * Prepare the bindings for an update statement.
+	 *
+	 * @param array $bindings
+	 * @param array $values
+	 * @return array
+	 */
+	public function prepareBindingsForUpdate(array $bindings, array $values)
+	{
+		$values = array_merge($bindings['expressions'], $values);
 
-    /**
-     * Compile a delete statement into SQL.
-     *
-     * @param \Illuminate\Database\Query\Builder $query
-     * @return string
-     */
-    public function compileDelete(Builder $query)
-    {
-        $compiled = parent::compileDelete($query);
+		unset($bindings['expressions']);
 
-        return (string) Str::of($compiled)
-            ->prepend($this->compileExpressions($query), ' ')
-            ->trim();
-    }
+		return parent::prepareBindingsForUpdate($bindings, $values);
+	}
+
+	/**
+	 * Compile a delete statement into SQL.
+	 *
+	 * @param \Illuminate\Database\Query\Builder $query
+	 * @return string
+	 */
+	public function compileDelete(Builder $query)
+	{
+		$compiled = parent::compileDelete($query);
+
+		return (string)Str::of($compiled)
+			->prepend($this->compileExpressions($query), ' ')
+			->trim();
+	}
 }
